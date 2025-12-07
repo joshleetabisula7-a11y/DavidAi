@@ -3,9 +3,6 @@ import json
 import threading
 import math
 from functools import wraps
-from io import BytesIO
-
-import openai
 from gtts import gTTS
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ChatAction
 from telegram.ext import (
@@ -13,9 +10,9 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
-    Filters,
-    CallbackContext
+    Filters
 )
+import openai
 
 # ===== CONFIG =====
 TELEGRAM_BOT_TOKEN = "8435631757:AAHj8lR8rDG72DxetBGUyLeVg3ZQHpKbMh0"
@@ -257,122 +254,6 @@ def main():
     dp.add_handler(CommandHandler("quote", quote_cmd))
 
     dp.add_handler(CallbackQueryHandler(callback_handler))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_message_handler))
-
-    updater.start_polling()
-    updater.idle()
-
-if __name__ == "__main__":
-    main()def _do_info(chat_id, target, context):
-    try:
-        send_typing(chat_id, context)
-        chat = context.bot.get_chat(target)
-        info = (
-            f"👤 User Info\n"
-            f"First name: {chat.first_name or '-'}\n"
-            f"Last name: {chat.last_name or '-'}\n"
-            f"Username: @{chat.username or '-'}\n"
-            f"User ID: {chat.id}"
-        )
-        context.bot.send_message(chat_id=chat_id, text=info)
-    except Exception as e:
-        context.bot.send_message(chat_id=chat_id, text=f"Cannot fetch info: {e}")
-
-def info_cmd(update, context):
-    if not context.args: return update.message.reply_text("Usage: /info <username_or_id>")
-    target = context.args[0]
-    _do_info(update.effective_chat.id, target, context)
-
-@run_in_thread
-def _do_solve(chat_id, text, context):
-    send_typing(chat_id, context)
-    system = "You are an expert tutor. Explain step-by-step."
-    answer = openai_chat_reply(text, system=system, max_tokens=1000)
-    context.bot.send_message(chat_id=chat_id, text=answer)
-
-def solve_cmd(update, context):
-    text = " ".join(context.args).strip()
-    if not text: return update.message.reply_text("Usage: /solve <assignment>")
-    _do_solve(update.effective_chat.id, text, context)
-
-@run_in_thread
-def _do_advice(chat_id, topic, context):
-    send_typing(chat_id, context)
-    prompt = f"Provide advice on: {topic} (4-6 bullet points)"
-    advice = openai_chat_reply(prompt, max_tokens=300)
-    context.bot.send_message(chat_id=chat_id, text=advice)
-
-def advice_cmd(update, context):
-    topic = " ".join(context.args).strip()
-    if not topic: return update.message.reply_text("Usage: /advice <topic>")
-    _do_advice(update.effective_chat.id, topic, context)
-
-# -------- VOICE HANDLER --------
-@run_in_thread
-def handle_voice(chat_id, file_path, context):
-    send_typing(chat_id, context)
-    text = openai_transcribe_file(file_path)
-    if text:
-        context.bot.send_message(chat_id=chat_id, text=f"📝 Transcription:\n{text}")
-        answer = openai_chat_reply(f"The user said: {text}\nProvide a short answer.")
-        context.bot.send_message(chat_id=chat_id, text=f"🤖 AI reply:\n{answer}")
-    else:
-        context.bot.send_message(chat_id=chat_id, text="❌ Could not transcribe audio.")
-    os.remove(file_path)
-
-def voice_handler(update, context):
-    voice = update.message.voice
-    if not voice: return update.message.reply_text("No voice found.")
-    f = context.bot.get_file(voice.file_id)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ogg")
-    f.download(custom_path=tmp.name)
-    handle_voice(update.effective_chat.id, tmp.name, context)
-
-# -------- INLINE BUTTONS --------
-def callback_handler(update, context):
-    query = update.callback_query
-    query.answer()
-    uid = query.from_user.id
-    action = query.data
-    waiting_for[uid] = {"action": action}
-    prompts = {
-        "ask": "Send your question for /ask:",
-        "tts": "Send the text for /tts:",
-        "info": "Send username or ID for /info:",
-        "solve": "Send assignment for /solve:",
-        "advice": "Send topic for /advice:",
-    }
-    query.message.reply_text(prompts.get(action, "Send your input:"))
-
-def text_message_handler(update, context):
-    uid = update.effective_user.id
-    if uid in waiting_for:
-        state = waiting_for.pop(uid)
-        action = state.get("action")
-        text = update.message.text.strip()
-        if action == "ask": _do_ask(update.effective_chat.id, text, context)
-        elif action == "tts": _do_tts(update.effective_chat.id, text, context)
-        elif action == "info": _do_info(update.effective_chat.id, text, context)
-        elif action == "solve": _do_solve(update.effective_chat.id, text, context)
-        elif action == "advice": _do_advice(update.effective_chat.id, text, context)
-        else: update.message.reply_text("Unknown action.")
-        return
-
-# -------- MAIN --------
-def main():
-    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start_cmd))
-    dp.add_handler(CommandHandler("help", help_cmd))
-    dp.add_handler(CommandHandler("ask", ask_cmd))
-    dp.add_handler(CommandHandler("tts", tts_cmd))
-    dp.add_handler(CommandHandler("info", info_cmd))
-    dp.add_handler(CommandHandler("solve", solve_cmd))
-    dp.add_handler(CommandHandler("advice", advice_cmd))
-
-    dp.add_handler(CallbackQueryHandler(callback_handler))
-    dp.add_handler(MessageHandler(Filters.voice, voice_handler))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_message_handler))
 
     updater.start_polling()
